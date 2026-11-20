@@ -1,7 +1,5 @@
 # Tenant Ledger API
-
-A multi-tenant financial ledger API built with FastAPI, SQLAlchemy, and SQLite.
-
-Run locally: `uvicorn app.main:app --reload`
-
-Run tests: `pytest -v`
+FastAPI + SQLAlchemy multi-tenant financial ledger using SQLite.
+Run: `uvicorn app.main:app --reload`
+Tests: `pytest -v`
+API docs: `/docs`
