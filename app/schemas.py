@@ -14,6 +14,16 @@ class TransactionCreate(BaseModel):
     currency: str = Field(min_length=3, max_length=3)
     transaction_date: datetime
 
+    @field_validator("client_ref", "transaction_ref", "counterparty_client_ref")
+    @classmethod
+    def normalize_references(cls, value):
+        if value is None:
+            return value
+        value = value.strip()
+        if not value:
+            raise ValueError("Reference cannot be blank")
+        return value
+
     @field_validator("currency")
     @classmethod
     def validate_currency(cls, value):
