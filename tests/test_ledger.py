@@ -356,6 +356,37 @@ def test_transfer_debits_source_and_credits_destination(client):
     assert Decimal(str(destination_after)) == Decimal("0.00")
 
 
+
+def test_bulk_import_supports_valid_two_sided_transfer(client):
+    headers = setup_firm_and_client(client, "Bulk Transfer Firm")
+    client.post(
+        "/api/clients",
+        params={"client_ref": "CLIENT002"},
+        headers=headers,
+    )
+    transfer = transaction_data(ref="BULK-TRANSFER", amount="45.75")
+    transfer["transaction_type"] = "transfer"
+    transfer["counterparty_client_ref"] = "CLIENT002"
+
+    response = client.post(
+        "/api/transactions/bulk",
+        headers=headers,
+        json={"transactions": [transfer]},
+    )
+    assert response.status_code == 200
+    assert response.json()["succeeded"] == 1
+    assert response.json()["rejected"] == 0
+
+    source = client.get(
+        "/api/clients/CLIENT001/balance", headers=headers
+    ).json()["balances"]["INR"]
+    destination = client.get(
+        "/api/clients/CLIENT002/balance", headers=headers
+    ).json()["balances"]["INR"]
+    assert Decimal(str(source)) == Decimal("-45.75")
+    assert Decimal(str(destination)) == Decimal("45.75")
+
+
 def test_transfer_requires_counterparty_in_same_firm(client):
     headers = setup_firm_and_client(client, "Transfer Source Firm")
     transfer = transaction_data(ref="TRANSFER-MISSING")
