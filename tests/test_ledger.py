@@ -268,6 +268,52 @@ def test_audit_log_records_transaction_and_reversal(client):
     assert actions == ["CREATED", "REVERSED"]
 
 
+
+def test_audit_logs_are_isolated_between_firms(client):
+    firm_a_headers = setup_firm_and_client(client, "Audit Firm A")
+    assert create_transaction(client, firm_a_headers).status_code == 200
+
+    firm_b_headers = setup_firm_and_client(client, "Audit Firm B")
+    response = client.get("/api/audit-logs", headers=firm_b_headers)
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_historical_balance_includes_incoming_transfer(client):
+    headers = setup_firm_and_client(client, "Historical Transfer Firm")
+    client.post(
+        "/api/clients",
+        params={"client_ref": "CLIENT002"},
+        headers=headers,
+    )
+    transfer = transaction_data(
+        ref="HIST-TRANSFER",
+        amount="90.25",
+        date="2026-10-10T12:00:00",
+    )
+    transfer["transaction_type"] = "transfer"
+    transfer["counterparty_client_ref"] = "CLIENT002"
+
+    created = create_transaction(client, headers, transfer)
+    assert created.status_code == 200
+
+    response = client.get(
+        "/api/clients/CLIENT002/balance/history",
+        params={"as_of": "2026-10-31T23:59:59"},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert Decimal(str(response.json()["balances"]["INR"])) == Decimal("90.25")
+
+
+def test_same_transaction_reference_can_exist_in_different_firms(client):
+    firm_a_headers = setup_firm_and_client(client, "Reference Firm A")
+    firm_b_headers = setup_firm_and_client(client, "Reference Firm B")
+
+    assert create_transaction(client, firm_a_headers).status_code == 200
+    assert create_transaction(client, firm_b_headers).status_code == 200
+
+
 def test_transfer_debits_source_and_credits_destination(client):
     headers = setup_firm_and_client(client, "Transfer Firm")
     destination = client.post(
