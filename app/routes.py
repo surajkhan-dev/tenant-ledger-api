@@ -6,6 +6,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from pydantic import ValidationError
 
 from app.database import get_db
 from app.models import AuditLog, Client, Firm, Transaction
@@ -146,13 +147,25 @@ def bulk_import(
 ):
     results = []
 
-    for item in data.transactions:
+    for row_number, raw_item in enumerate(data.transactions, start=1):
+        try:
+            item = TransactionCreate.model_validate(raw_item)
+        except ValidationError as exc:
+            results.append({
+                "row": row_number,
+                "transaction_ref": raw_item.get("transaction_ref"),
+                "status": "rejected",
+                "reason": exc.errors(include_url=False),
+            })
+            continue
+
         client = db.query(Client).filter(
             Client.firm_id == firm.id,
             Client.client_ref == item.client_ref,
         ).first()
         if not client:
             results.append({
+                "row": row_number,
                 "transaction_ref": item.transaction_ref,
                 "status": "rejected",
                 "reason": "Client not found",
@@ -177,12 +190,14 @@ def bulk_import(
             )
             db.commit()
             results.append({
+                "row": row_number,
                 "transaction_ref": item.transaction_ref,
                 "status": "success",
             })
         except IntegrityError:
             db.rollback()
             results.append({
+                "row": row_number,
                 "transaction_ref": item.transaction_ref,
                 "status": "rejected",
                 "reason": "Duplicate transaction",
