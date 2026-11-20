@@ -1,6 +1,11 @@
 from sqlalchemy import (
-    Column, Integer, String, DateTime, ForeignKey,
-    UniqueConstraint, Numeric
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
 )
 from sqlalchemy.sql import func
 
@@ -32,7 +37,10 @@ class Transaction(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     firm_id = Column(Integer, ForeignKey("firms.id"), nullable=False)
+    # For transfers, client_ref is the source and counterparty_client_ref is
+    # the destination. A transfer is represented by one immutable ledger row.
     client_ref = Column(String(100), nullable=False)
+    counterparty_client_ref = Column(String(100), nullable=True)
     transaction_ref = Column(String(100), nullable=False)
     transaction_type = Column(String(20), nullable=False)
     amount = Column(Numeric(18, 2), nullable=False)
