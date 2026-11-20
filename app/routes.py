@@ -109,9 +109,12 @@ def create_transaction(
     db: Session = Depends(get_db),
 ):
     ensure_client(db, firm.id, data.client_ref)
+    if data.transaction_type == "transfer":
+        ensure_client(db, firm.id, data.counterparty_client_ref)
     transaction = Transaction(
         firm_id=firm.id,
         client_ref=data.client_ref,
+        counterparty_client_ref=data.counterparty_client_ref,
         transaction_ref=data.transaction_ref,
         transaction_type=data.transaction_type,
         amount=data.amount,
@@ -166,18 +169,25 @@ def bulk_import(
             Client.firm_id == firm.id,
             Client.client_ref == item.client_ref,
         ).first()
-        if not client:
+        counterparty_exists = True
+        if item.transaction_type == "transfer":
+            counterparty_exists = db.query(Client.id).filter(
+                Client.firm_id == firm.id,
+                Client.client_ref == item.counterparty_client_ref,
+            ).first() is not None
+        if not client or not counterparty_exists:
             results.append({
                 "row": row_number,
                 "transaction_ref": item.transaction_ref,
                 "status": "rejected",
-                "reason": "Client not found",
+                "reason": "Client or transfer counterparty not found",
             })
             continue
 
         transaction = Transaction(
             firm_id=firm.id,
             client_ref=item.client_ref,
+            counterparty_client_ref=item.counterparty_client_ref,
             transaction_ref=item.transaction_ref,
             transaction_type=item.transaction_type,
             amount=item.amount,
@@ -219,15 +229,24 @@ def list_transactions(
     ).order_by(Transaction.transaction_date, Transaction.id).all()
 
 
-def calculate_balances(transactions):
+def calculate_balances(transactions, client_ref: str):
     balances = {}
     for transaction in transactions:
         currency = transaction.currency
         balances.setdefault(currency, Decimal("0.00"))
-        if transaction.transaction_type in ("deposit", "transfer"):
-            balances[currency] += transaction.amount
+
+        if transaction.transaction_type == "deposit":
+            if transaction.client_ref == client_ref:
+                balances[currency] += transaction.amount
         elif transaction.transaction_type in ("withdrawal", "fee"):
-            balances[currency] -= transaction.amount
+            if transaction.client_ref == client_ref:
+                balances[currency] -= transaction.amount
+        elif transaction.transaction_type == "transfer":
+            if transaction.client_ref == client_ref:
+                balances[currency] -= transaction.amount
+            if transaction.counterparty_client_ref == client_ref:
+                balances[currency] += transaction.amount
+
     return balances
 
 
@@ -242,7 +261,7 @@ def client_balance(
         Transaction.firm_id == firm.id,
         Transaction.client_ref == client_ref,
     ).all()
-    return {"client_ref": client_ref, "balances": calculate_balances(transactions)}
+    return {"client_ref": client_ref, "balances": calculate_balances(transactions, client_ref)}
 
 
 @router.get("/clients/{client_ref}/balance/history")
@@ -265,7 +284,7 @@ def historical_balance(
     return {
         "client_ref": client_ref,
         "as_of": as_of,
-        "balances": calculate_balances(transactions),
+        "balances": calculate_balances(transactions, client_ref),
     }
 
 
@@ -284,11 +303,6 @@ def reverse_transaction(
         raise HTTPException(status_code=404, detail="Transaction not found")
     if original.reversal_of_id is not None:
         raise HTTPException(status_code=400, detail="A reversal cannot be reversed")
-    if original.transaction_type == "transfer":
-        raise HTTPException(
-            status_code=422,
-            detail="Transfer reversal is unsupported until transfers model both accounts",
-        )
     if db.query(Transaction).filter(
         Transaction.reversal_of_id == original.id
     ).first():
@@ -298,10 +312,18 @@ def reverse_transaction(
         "deposit": "withdrawal",
         "withdrawal": "deposit",
         "fee": "deposit",
+        "transfer": "transfer",
     }
     reversal = Transaction(
         firm_id=firm.id,
-        client_ref=original.client_ref,
+        client_ref=(
+            original.counterparty_client_ref
+            if original.transaction_type == "transfer"
+            else original.client_ref
+        ),
+        counterparty_client_ref=(
+            original.client_ref if original.transaction_type == "transfer" else None
+        ),
         transaction_ref=data.reversal_ref,
         transaction_type=opposite_types[original.transaction_type],
         amount=original.amount,
