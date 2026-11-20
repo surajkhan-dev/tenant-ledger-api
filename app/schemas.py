@@ -76,3 +76,11 @@ class TransactionResponse(BaseModel):
 
 class ReversalCreate(BaseModel):
     reversal_ref: str = Field(min_length=1, max_length=100)
+
+    @field_validator("reversal_ref")
+    @classmethod
+    def normalize_reversal_ref(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("Reversal reference cannot be blank")
+        return value

@@ -1,10 +1,10 @@
-- SQLite is used for local development; DATABASE_URL can select another SQLAlchemy database.
-- Money uses Decimal and Numeric(18, 2), with positive-amount database constraints.
-- Firms receive random one-time API keys; only SHA-256 hashes are stored and X-Firm-Key authenticates requests.
-- Firm-scoped unique references and composite client foreign keys protect tenant data.
-- Bulk imports validate rows independently and commit each accepted row with its audit event.
-- Transfers debit the source client and credit the destination client in one immutable ledger entry.
-- Reversals create linked compensating entries; original transactions are never edited or deleted.
-- Audit logs are written atomically with ledger changes and are firm-scoped.
-- Back up and remove an old local tenant_ledger.db before using the changed schema; create_all is not a migration tool.
-- Production requires managed migrations, PostgreSQL operations, API-key rotation, rate limiting, and monitoring.
+- Local development defaults to SQLite; set DATABASE_URL to use another supported SQLAlchemy database.
+- Money uses Decimal in application logic and Numeric(18, 2) in storage.
+- Firm API keys are random, returned once, and stored only as SHA-256 hashes.
+- All firm-scoped routes authenticate with X-Firm-Key and filter records by firm_id.
+- Client and transaction references are unique within a firm; database constraints reinforce validation.
+- Bulk imports validate and commit rows independently, preserving partial success.
+- Transfers debit the source and credit the destination through one immutable ledger entry.
+- Reversals append linked compensating entries; original transactions are not edited or deleted.
+- Ledger and audit-log listing support bounded pagination (limit 1–500).
+- create_all is not a migration system; production needs managed migrations, PostgreSQL operations, key rotation, rate limiting, and monitoring.

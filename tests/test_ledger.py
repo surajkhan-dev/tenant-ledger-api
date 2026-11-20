@@ -404,3 +404,78 @@ def test_transfer_requires_counterparty_field(client):
 
     response = create_transaction(client, headers, transfer)
     assert response.status_code == 422
+
+
+
+def test_transaction_list_supports_bounded_pagination(client):
+    headers = setup_firm_and_client(client, "Pagination Firm")
+    for index in range(3):
+        payload = transaction_data(
+            ref=f"PAGE-{index}",
+            amount=str(10 + index),
+            date=f"2026-11-20T10:0{index}:00",
+        )
+        assert create_transaction(client, headers, payload).status_code == 200
+
+    first_page = client.get(
+        "/api/transactions", params={"limit": 2, "offset": 0}, headers=headers
+    )
+    second_page = client.get(
+        "/api/transactions", params={"limit": 2, "offset": 2}, headers=headers
+    )
+    assert first_page.status_code == second_page.status_code == 200
+    assert len(first_page.json()) == 2
+    assert len(second_page.json()) == 1
+
+
+def test_audit_log_list_supports_pagination(client):
+    headers = setup_firm_and_client(client, "Audit Pagination Firm")
+    for index in range(3):
+        assert create_transaction(
+            client, headers, transaction_data(ref=f"AUDIT-PAGE-{index}")
+        ).status_code == 200
+
+    response = client.get(
+        "/api/audit-logs", params={"limit": 2, "offset": 1}, headers=headers
+    )
+    assert response.status_code == 200
+    assert len(response.json()) == 2
+
+
+def test_bulk_import_rejects_non_object_row_without_crashing(client):
+    headers = setup_firm_and_client(client, "Malformed Bulk Firm")
+    valid = transaction_data(ref="BULK-AFTER-MALFORMED")
+    response = client.post(
+        "/api/transactions/bulk",
+        headers=headers,
+        json={"transactions": [None, "not-an-object", valid]},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 3
+    assert body["succeeded"] == 1
+    assert body["rejected"] == 2
+
+
+def test_reversal_reference_cannot_be_blank(client):
+    headers = setup_firm_and_client(client, "Blank Reversal Firm")
+    transaction_id = create_transaction(client, headers).json()["transaction_id"]
+    response = client.post(
+        f"/api/transactions/{transaction_id}/reverse",
+        headers=headers,
+        json={"reversal_ref": "   "},
+    )
+    assert response.status_code == 422
+
+
+def test_firm_cannot_reverse_another_firms_transaction(client):
+    firm_a_headers = setup_firm_and_client(client, "Reverse Owner Firm")
+    transaction_id = create_transaction(client, firm_a_headers).json()["transaction_id"]
+    firm_b_headers = setup_firm_and_client(client, "Reverse Other Firm")
+
+    response = client.post(
+        f"/api/transactions/{transaction_id}/reverse",
+        headers=firm_b_headers,
+        json={"reversal_ref": "CROSS-TENANT-REVERSAL"},
+    )
+    assert response.status_code == 404
