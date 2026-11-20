@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -14,6 +14,13 @@ TEST_ENGINE = create_engine(
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
+
+
+@event.listens_for(TEST_ENGINE, "connect")
+def enable_test_foreign_keys(connection, _record):
+    cursor = connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 TestingSessionLocal = sessionmaker(
     autocommit=False, autoflush=False, bind=TEST_ENGINE
 )
@@ -79,7 +86,7 @@ def test_create_firm_returns_one_time_api_key(client):
 
 def test_firm_api_key_is_required(client):
     response = client.get("/api/transactions")
-    assert response.status_code == 422
+    assert response.status_code == 401
 
     response = client.get(
         "/api/transactions", headers={"X-Firm-Key": "not-a-valid-key"}
