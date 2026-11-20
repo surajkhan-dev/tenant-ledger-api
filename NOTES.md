@@ -1,11 +1,10 @@
-- SQLite is used for local development and automated tests.
-- Money values use Decimal and SQLAlchemy Numeric(18, 2).
-- Firm API keys are randomly generated; only SHA-256 hashes are stored.
-- Send the one-time key as X-Firm-Key; never use a caller-supplied firm ID.
-- Transaction references are unique within each firm.
-- Bulk imports commit rows independently to allow partial success.
-- Reversals create compensating transactions; originals remain unchanged.
-- Audit events are written in the same database transaction as ledger changes.
-- A transfer is currently treated as an incoming credit; the model does not represent both accounts.
-- Transfer reversal is rejected until two-sided transfer accounting is implemented.
-- Production still needs database migrations, PostgreSQL deployment, key rotation, and stronger operational controls.
+- SQLite is used for local development; DATABASE_URL can select another SQLAlchemy database.
+- Money uses Decimal and Numeric(18, 2), with positive-amount database constraints.
+- Firms receive random one-time API keys; only SHA-256 hashes are stored and X-Firm-Key authenticates requests.
+- Firm-scoped unique references and composite client foreign keys protect tenant data.
+- Bulk imports validate rows independently and commit each accepted row with its audit event.
+- Transfers debit the source client and credit the destination client in one immutable ledger entry.
+- Reversals create linked compensating entries; original transactions are never edited or deleted.
+- Audit logs are written atomically with ledger changes and are firm-scoped.
+- Back up and remove an old local tenant_ledger.db before using the changed schema; create_all is not a migration tool.
+- Production requires managed migrations, PostgreSQL operations, API-key rotation, rate limiting, and monitoring.
