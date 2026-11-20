@@ -3,7 +3,7 @@ import secrets
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -49,7 +49,13 @@ def get_firm(
 
 
 @router.post("/firms")
-def create_firm(name: str, db: Session = Depends(get_db)):
+def create_firm(
+    name: str = Query(min_length=1, max_length=100),
+    db: Session = Depends(get_db),
+):
+    name = name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Firm name cannot be blank")
     api_key = secrets.token_urlsafe(32)
     firm = Firm(name=name, api_key_hash=hash_api_key(api_key))
     db.add(firm)
@@ -67,10 +73,13 @@ def create_firm(name: str, db: Session = Depends(get_db)):
 
 @router.post("/clients")
 def create_client(
-    client_ref: str,
+    client_ref: str = Query(min_length=1, max_length=100),
     firm: Firm = Depends(get_firm),
     db: Session = Depends(get_db),
 ):
+    client_ref = client_ref.strip()
+    if not client_ref:
+        raise HTTPException(status_code=422, detail="Client reference cannot be blank")
     client = Client(firm_id=firm.id, client_ref=client_ref)
     db.add(client)
 
@@ -220,7 +229,13 @@ def bulk_import(
                 "reason": "Duplicate transaction",
             })
 
-    return {"total": len(data.transactions), "results": results}
+    succeeded = sum(row["status"] == "success" for row in results)
+    return {
+        "total": len(data.transactions),
+        "succeeded": succeeded,
+        "rejected": len(results) - succeeded,
+        "results": results,
+    }
 
 
 @router.get("/transactions")
