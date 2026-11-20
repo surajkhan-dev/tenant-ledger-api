@@ -240,12 +240,17 @@ def bulk_import(
 
 @router.get("/transactions")
 def list_transactions(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     firm: Firm = Depends(get_firm),
     db: Session = Depends(get_db),
 ):
+    """Return a firm-scoped, ordered page of ledger entries."""
     return db.query(Transaction).filter(
         Transaction.firm_id == firm.id
-    ).order_by(Transaction.transaction_date, Transaction.id).all()
+    ).order_by(
+        Transaction.transaction_date, Transaction.id
+    ).offset(offset).limit(limit).all()
 
 
 def calculate_balances(transactions, client_ref: str):
@@ -381,9 +386,12 @@ def reverse_transaction(
 
 @router.get("/audit-logs")
 def list_audit_logs(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     firm: Firm = Depends(get_firm),
     db: Session = Depends(get_db),
 ):
+    """Return a firm-scoped page of audit events."""
     return db.query(AuditLog).filter(
         AuditLog.firm_id == firm.id
-    ).order_by(AuditLog.id).all()
+    ).order_by(AuditLog.id).offset(offset).limit(limit).all()
