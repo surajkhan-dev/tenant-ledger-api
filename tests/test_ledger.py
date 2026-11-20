@@ -182,6 +182,29 @@ def test_bulk_import_allows_partial_success(client):
     assert response.json()["results"][1]["status"] == "rejected"
 
 
+
+def test_bulk_import_rejects_invalid_row_without_blocking_valid_row(client):
+    headers = setup_firm_and_client(client)
+    valid = transaction_data(ref="BULK-VALID", amount="75")
+    invalid = transaction_data(ref="BULK-INVALID", amount="-10")
+
+    response = client.post(
+        "/api/transactions/bulk",
+        headers=headers,
+        json={"transactions": [valid, invalid]},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 2
+    assert body["results"][0]["status"] == "success"
+    assert body["results"][1]["status"] == "rejected"
+    assert body["results"][1]["row"] == 2
+
+    ledger = client.get("/api/transactions", headers=headers)
+    assert len(ledger.json()) == 1
+
+
 def test_reverse_transaction_preserves_original_and_restores_balance(client):
     headers = setup_firm_and_client(client)
     created = create_transaction(client, headers)
