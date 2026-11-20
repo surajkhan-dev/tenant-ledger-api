@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from pydantic import ValidationError
@@ -259,7 +260,10 @@ def client_balance(
     ensure_client(db, firm.id, client_ref)
     transactions = db.query(Transaction).filter(
         Transaction.firm_id == firm.id,
-        Transaction.client_ref == client_ref,
+        or_(
+            Transaction.client_ref == client_ref,
+            Transaction.counterparty_client_ref == client_ref,
+        ),
     ).all()
     return {"client_ref": client_ref, "balances": calculate_balances(transactions, client_ref)}
 
