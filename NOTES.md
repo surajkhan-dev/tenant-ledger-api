@@ -1,0 +1,8 @@
+- SQLite is used for local development and automated tests.
+- Money values use Decimal and SQLAlchemy Numeric(18, 2).
+- Transaction references are unique within each firm.
+- Bulk imports commit rows independently for partial success.
+- Reversals create compensating transactions; originals remain unchanged.
+- Audit events are written in the same transaction as ledger changes.
+- Tenant identity must be authenticated; a caller-supplied firm ID is not secure.
+- Production deployment needs migrations, PostgreSQL, and stronger auth controls.
