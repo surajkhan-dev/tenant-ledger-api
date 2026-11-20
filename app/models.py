@@ -1,7 +1,9 @@
 from sqlalchemy import (
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
     Numeric,
     String,
@@ -38,7 +40,7 @@ class Transaction(Base):
     id = Column(Integer, primary_key=True, index=True)
     firm_id = Column(Integer, ForeignKey("firms.id"), nullable=False)
     # For transfers, client_ref is the source and counterparty_client_ref is
-    # the destination. A transfer is represented by one immutable ledger row.
+    # the destination. One immutable row affects both client ledgers.
     client_ref = Column(String(100), nullable=False)
     counterparty_client_ref = Column(String(100), nullable=True)
     transaction_ref = Column(String(100), nullable=False)
@@ -54,6 +56,27 @@ class Transaction(Base):
     __table_args__ = (
         UniqueConstraint(
             "firm_id", "transaction_ref", name="uq_firm_transaction_ref"
+        ),
+        ForeignKeyConstraint(
+            ["firm_id", "client_ref"],
+            ["clients.firm_id", "clients.client_ref"],
+            name="fk_transaction_source_client",
+        ),
+        ForeignKeyConstraint(
+            ["firm_id", "counterparty_client_ref"],
+            ["clients.firm_id", "clients.client_ref"],
+            name="fk_transaction_counterparty_client",
+        ),
+        CheckConstraint("amount > 0", name="ck_transaction_positive_amount"),
+        CheckConstraint(
+            "transaction_type IN ('deposit', 'withdrawal', 'fee', 'transfer')",
+            name="ck_transaction_type",
+        ),
+        CheckConstraint(
+            "(transaction_type = 'transfer' AND counterparty_client_ref IS NOT NULL "
+            "AND counterparty_client_ref <> client_ref) OR "
+            "(transaction_type <> 'transfer' AND counterparty_client_ref IS NULL)",
+            name="ck_transaction_counterparty",
         ),
     )
 
