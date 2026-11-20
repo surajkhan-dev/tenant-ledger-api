@@ -18,6 +18,13 @@ from app.schemas import (
 router = APIRouter(prefix="/api", tags=["Ledger"])
 
 
+def to_utc_naive(value: datetime) -> datetime:
+    """Store all timestamps as UTC-naive values for SQLite consistency."""
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc)
+    return value.replace(tzinfo=None)
+
+
 def hash_api_key(api_key: str) -> str:
     return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
 
@@ -108,7 +115,7 @@ def create_transaction(
         transaction_type=data.transaction_type,
         amount=data.amount,
         currency=data.currency,
-        transaction_date=data.transaction_date.replace(tzinfo=None),
+        transaction_date=to_utc_naive(data.transaction_date),
     )
     db.add(transaction)
 
