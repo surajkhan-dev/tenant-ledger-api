@@ -179,7 +179,7 @@ def bulk_import(
             transaction_type=item.transaction_type,
             amount=item.amount,
             currency=item.currency,
-            transaction_date=item.transaction_date.replace(tzinfo=None),
+            transaction_date=to_utc_naive(item.transaction_date),
         )
 
         try:
