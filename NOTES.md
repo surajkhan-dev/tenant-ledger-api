@@ -1,10 +1,10 @@
-- Local development defaults to SQLite; set DATABASE_URL to use another supported SQLAlchemy database.
-- Money uses Decimal in application logic and Numeric(18, 2) in storage.
-- Firm API keys are random, returned once, and stored only as SHA-256 hashes.
-- All firm-scoped routes authenticate with X-Firm-Key and filter records by firm_id.
-- Client and transaction references are unique within a firm; database constraints reinforce validation.
-- Bulk imports validate and commit rows independently, preserving partial success.
-- Transfers debit the source and credit the destination through one immutable ledger entry.
-- Reversals append linked compensating entries; original transactions are not edited or deleted.
-- Ledger and audit-log listing support bounded pagination (limit 1–500).
-- create_all is not a migration system; production needs managed migrations, PostgreSQL operations, key rotation, rate limiting, and monitoring.
+- Chosen: firm-scoped API keys and database constraints isolate tenants; random high-entropy keys are returned once and only SHA-256 hashes are stored.
+- Chosen: Decimal/Numeric money, positive-amount and currency/date validation, and per-firm unique transaction references protect ledger correctness.
+- Chosen: row-by-row bulk commits provide partial success; malformed rows do not block valid rows, and duplicate rows are rejected.
+- Chosen: historical balances use immutable dated entries; reversals append linked compensating entries instead of editing or deleting history.
+- Chosen: transfers are one immutable entry that debits the source and credits the destination; audit events are committed with ledger changes.
+- Chosen: firm-scoped endpoints and bounded pagination keep access narrow; SQLite is the simple local default and DATABASE_URL allows another SQLAlchemy database.
+- Skipped: monthly summaries because the one-hour scope prioritised transaction correctness and history; add indexed, currency-aware aggregation when reporting requirements are defined.
+- Skipped: limited-access support roles, rate limiting, suspicious-activity rules, and exports; these need explicit permissions, thresholds, and operational policy before safe implementation.
+- Risks: firm creation is unauthenticated for challenge onboarding; production needs controlled provisioning, key rotation, RBAC, rate limits, managed migrations, monitoring, and backups.
+- At 100x load: SQLite write contention, per-row bulk queries/commits, full-history balance scans, and offset pagination may bottleneck; use PostgreSQL, indexes, batched SQL, aggregate snapshots, cursor pagination, and load tests.
