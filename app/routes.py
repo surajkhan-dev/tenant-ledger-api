@@ -1,8 +1,9 @@
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import func
 
 from app.database import get_db
 from app.models import Firm, Client, Transaction, AuditLog
@@ -12,52 +13,82 @@ from app.schemas import TransactionCreate, BulkTransactionCreate
 router = APIRouter(prefix="/api", tags=["Ledger"])
 
 
+# Get firm using request header
 def get_firm(
     x_firm_id: int = Header(...),
     db: Session = Depends(get_db)
 ):
-    firm = db.query(Firm).filter(Firm.id == x_firm_id).first()
+    firm = db.query(Firm).filter(
+        Firm.id == x_firm_id
+    ).first()
 
     if not firm:
-        raise HTTPException(status_code=404, detail="Firm not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Firm not found"
+        )
 
     return firm
 
 
+# Create a new firm
 @router.post("/firms")
-def create_firm(name: str, db: Session = Depends(get_db)):
+def create_firm(
+    name: str,
+    db: Session = Depends(get_db)
+):
     firm = Firm(name=name)
     db.add(firm)
 
     try:
         db.commit()
         db.refresh(firm)
+
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=409, detail="Firm already exists")
+        raise HTTPException(
+            status_code=409,
+            detail="Firm already exists"
+        )
 
-    return {"id": firm.id, "name": firm.name}
+    return {
+        "id": firm.id,
+        "name": firm.name
+    }
 
 
+# Create a client
 @router.post("/clients")
 def create_client(
     client_ref: str,
     firm: Firm = Depends(get_firm),
     db: Session = Depends(get_db)
 ):
-    client = Client(firm_id=firm.id, client_ref=client_ref)
+    client = Client(
+        firm_id=firm.id,
+        client_ref=client_ref
+    )
+
     db.add(client)
 
     try:
         db.commit()
         db.refresh(client)
+
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=409, detail="Client already exists")
+        raise HTTPException(
+            status_code=409,
+            detail="Client already exists"
+        )
 
-    return {"id": client.id, "client_ref": client.client_ref}
+    return {
+        "id": client.id,
+        "client_ref": client.client_ref
+    }
 
 
+# Create a transaction
 @router.post("/transactions")
 def create_transaction(
     data: TransactionCreate,
@@ -70,7 +101,10 @@ def create_transaction(
     ).first()
 
     if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Client not found"
+        )
 
     transaction = Transaction(
         firm_id=firm.id,
@@ -99,7 +133,10 @@ def create_transaction(
 
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=409, detail="Duplicate transaction")
+        raise HTTPException(
+            status_code=409,
+            detail="Duplicate transaction"
+        )
 
     return {
         "message": "Transaction created",
@@ -108,6 +145,7 @@ def create_transaction(
     }
 
 
+# Bulk transaction import
 @router.post("/transactions/bulk")
 def bulk_import(
     data: BulkTransactionCreate,
@@ -117,6 +155,7 @@ def bulk_import(
     results = []
 
     for item in data.transactions:
+
         client = db.query(Client).filter(
             Client.firm_id == firm.id,
             Client.client_ref == item.client_ref
@@ -173,6 +212,7 @@ def bulk_import(
     }
 
 
+# List all transactions for a firm
 @router.get("/transactions")
 def list_transactions(
     firm: Firm = Depends(get_firm),
@@ -185,6 +225,7 @@ def list_transactions(
     return transactions
 
 
+# Calculate current client balance
 @router.get("/clients/{client_ref}/balance")
 def client_balance(
     client_ref: str,
@@ -197,7 +238,10 @@ def client_balance(
     ).first()
 
     if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Client not found"
+        )
 
     transactions = db.query(Transaction).filter(
         Transaction.firm_id == firm.id,
@@ -207,10 +251,9 @@ def client_balance(
     balances = {}
 
     for transaction in transactions:
-        currency = transaction.currency
 
-        if currency not in balances:
-            balances[currency] = 0
+        currency = transaction.currency
+        balances.setdefault(currency, 0)
 
         if transaction.transaction_type in ("deposit", "transfer"):
             balances[currency] += transaction.amount
@@ -220,5 +263,50 @@ def client_balance(
 
     return {
         "client_ref": client_ref,
+        "balances": balances
+    }
+
+
+# Calculate historical balance
+@router.get("/clients/{client_ref}/balance/history")
+def historical_balance(
+    client_ref: str,
+    as_of: datetime,
+    firm: Firm = Depends(get_firm),
+    db: Session = Depends(get_db)
+):
+    client = db.query(Client).filter(
+        Client.firm_id == firm.id,
+        Client.client_ref == client_ref
+    ).first()
+
+    if not client:
+        raise HTTPException(
+            status_code=404,
+            detail="Client not found"
+        )
+
+    transactions = db.query(Transaction).filter(
+        Transaction.firm_id == firm.id,
+        Transaction.client_ref == client_ref,
+        Transaction.transaction_date <= as_of
+    ).all()
+
+    balances = {}
+
+    for transaction in transactions:
+
+        currency = transaction.currency
+        balances.setdefault(currency, 0)
+
+        if transaction.transaction_type in ("deposit", "transfer"):
+            balances[currency] += transaction.amount
+
+        elif transaction.transaction_type in ("withdrawal", "fee"):
+            balances[currency] -= transaction.amount
+
+    return {
+        "client_ref": client_ref,
+        "as_of": as_of,
         "balances": balances
     }
