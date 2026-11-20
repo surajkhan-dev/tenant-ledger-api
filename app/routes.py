@@ -156,7 +156,7 @@ def bulk_import(
                 "transaction_ref": raw_item.get("transaction_ref") if isinstance(raw_item, dict) else None,
                 "status": "rejected",
                 "reason": "; ".join(
-                    f"{\".\".join(str(part) for part in error[\"loc\"])}: {error[\"msg\"]}"
+                    ".".join(str(part) for part in error["loc"]) + ": " + error["msg"]
                     for error in exc.errors(include_url=False)
                 ),
             })
