@@ -6,5 +6,6 @@
 - Bulk imports commit rows independently to allow partial success.
 - Reversals create compensating transactions; originals remain unchanged.
 - Audit events are written in the same database transaction as ledger changes.
-- Transfer reversal is rejected because the model does not yet represent both accounts.
+- A transfer is currently treated as an incoming credit; the model does not represent both accounts.
+- Transfer reversal is rejected until two-sided transfer accounting is implemented.
 - Production still needs database migrations, PostgreSQL deployment, key rotation, and stronger operational controls.
