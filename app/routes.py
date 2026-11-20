@@ -153,7 +153,7 @@ def bulk_import(
         except ValidationError as exc:
             results.append({
                 "row": row_number,
-                "transaction_ref": raw_item.get("transaction_ref"),
+                "transaction_ref": raw_item.get("transaction_ref") if isinstance(raw_item, dict) else None,
                 "status": "rejected",
                 "reason": exc.errors(include_url=False),
             })
