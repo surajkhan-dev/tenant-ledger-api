@@ -261,15 +261,62 @@ def test_audit_log_records_transaction_and_reversal(client):
     assert actions == ["CREATED", "REVERSED"]
 
 
-def test_transfer_reversal_is_rejected_until_two_sided_transfer_exists(client):
-    headers = setup_firm_and_client(client)
-    transfer = transaction_data(ref="TRANSFER-1")
-    transfer["transaction_type"] = "transfer"
-    original_id = create_transaction(client, headers, transfer).json()["transaction_id"]
+def test_transfer_debits_source_and_credits_destination(client):
+    headers = setup_firm_and_client(client, "Transfer Firm")
+    destination = client.post(
+        "/api/clients",
+        params={"client_ref": "CLIENT002"},
+        headers=headers,
+    )
+    assert destination.status_code == 200
 
-    response = client.post(
-        f"/api/transactions/{original_id}/reverse",
+    transfer = transaction_data(ref="TRANSFER-1", amount="125.50")
+    transfer["transaction_type"] = "transfer"
+    transfer["counterparty_client_ref"] = "CLIENT002"
+    created = create_transaction(client, headers, transfer)
+    assert created.status_code == 200
+    transaction_id = created.json()["transaction_id"]
+
+    source_balance = client.get(
+        "/api/clients/CLIENT001/balance", headers=headers
+    ).json()["balances"]["INR"]
+    destination_balance = client.get(
+        "/api/clients/CLIENT002/balance", headers=headers
+    ).json()["balances"]["INR"]
+    assert Decimal(str(source_balance)) == Decimal("-125.50")
+    assert Decimal(str(destination_balance)) == Decimal("125.50")
+
+    reversal = client.post(
+        f"/api/transactions/{transaction_id}/reverse",
         headers=headers,
         json={"reversal_ref": "TRANSFER-REV"},
     )
+    assert reversal.status_code == 200
+
+    source_after = client.get(
+        "/api/clients/CLIENT001/balance", headers=headers
+    ).json()["balances"]["INR"]
+    destination_after = client.get(
+        "/api/clients/CLIENT002/balance", headers=headers
+    ).json()["balances"]["INR"]
+    assert Decimal(str(source_after)) == Decimal("0.00")
+    assert Decimal(str(destination_after)) == Decimal("0.00")
+
+
+def test_transfer_requires_counterparty_in_same_firm(client):
+    headers = setup_firm_and_client(client, "Transfer Source Firm")
+    transfer = transaction_data(ref="TRANSFER-MISSING")
+    transfer["transaction_type"] = "transfer"
+    transfer["counterparty_client_ref"] = "NOT-OWNED"
+
+    response = create_transaction(client, headers, transfer)
+    assert response.status_code == 404
+
+
+def test_transfer_requires_counterparty_field(client):
+    headers = setup_firm_and_client(client, "Transfer Validation Firm")
+    transfer = transaction_data(ref="TRANSFER-NO-DEST")
+    transfer["transaction_type"] = "transfer"
+
+    response = create_transaction(client, headers, transfer)
     assert response.status_code == 422
