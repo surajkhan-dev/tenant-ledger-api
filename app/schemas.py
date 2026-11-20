@@ -44,7 +44,9 @@ class TransactionCreate(BaseModel):
 
 
 class BulkTransactionCreate(BaseModel):
-    transactions: list[TransactionCreate]
+    # Validate each row independently in the endpoint so one bad row
+    # does not reject the entire import request.
+    transactions: list[dict] = Field(min_length=1, max_length=1000)
 
 
 class TransactionResponse(BaseModel):
