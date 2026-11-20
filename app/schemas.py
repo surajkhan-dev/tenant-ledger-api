@@ -59,3 +59,7 @@ class TransactionResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+
+class ReversalCreate(BaseModel):
+    reversal_ref: str = Field(min_length=1, max_length=100)
+
