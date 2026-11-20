@@ -32,9 +32,12 @@ def hash_api_key(api_key: str) -> str:
 
 
 def get_firm(
-    x_firm_key: str = Header(..., alias="X-Firm-Key"),
+    x_firm_key: str | None = Header(default=None, alias="X-Firm-Key"),
     db: Session = Depends(get_db),
 ):
+    if not x_firm_key:
+        raise HTTPException(status_code=401, detail="X-Firm-Key header is required")
+
     firm = db.query(Firm).filter(
         Firm.api_key_hash == hash_api_key(x_firm_key)
     ).first()
