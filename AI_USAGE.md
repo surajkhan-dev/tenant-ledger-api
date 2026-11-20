@@ -1,9 +1,11 @@
 # AI Usage
 - Tool: OpenAI ChatGPT.
-- Prompts: design a multi-tenant ledger data model and FastAPI endpoint structure.
-- Prompts: draft validation rules, SQLAlchemy models, transaction logic, and pytest cases.
-- Prompts: review tenant isolation, Decimal arithmetic, bulk partial success, transfers, reversals, audit behavior, and pagination.
-- The developer reviewed the proposed implementation and ran local tests during development.
-- GitHub Actions ran the test suite on Python 3.12; the recorded baseline had 21 passing tests.
-- Additional regression tests were added for pagination, malformed bulk rows, blank reversal references, and cross-firm reversal attempts.
-- AI suggestions were treated as drafts and verified through automated tests and code review.
+- Key prompts: design a multi-tenant ledger data model and FastAPI endpoint structure; review validation, transaction handling, tenant isolation, and API-key security.
+- Key prompts: draft pytest coverage and review bulk partial success, Decimal arithmetic, historical balances, transfers, reversals, audit events, and pagination.
+- AI output was treated as a proposal, not accepted blindly; implementation choices and generated changes were reviewed against the challenge requirements.
+- Corrected/rejected: kept the transfer representation explicit as one immutable ledger row affecting both client balances rather than claiming it is a two-posting double-entry journal.
+- Corrected/rejected: retained per-row commits for bulk import so a bad row does not roll back valid rows; rejected an all-or-nothing import approach.
+- Corrected/rejected: preserved original transactions and used linked compensating entries for reversals; rejected editing or deleting ledger history.
+- Verification: the initial 21-test suite was expanded with regression tests for pagination, malformed bulk rows, blank reversal references, and cross-firm reversal attempts.
+- GitHub Actions verifies the suite on Python 3.12; the latest recorded run passed all 26 tests.
+- The developer remains responsible for understanding, reviewing, and explaining the submitted implementation and trade-offs.
