@@ -1,26 +1,21 @@
+from decimal import Decimal
 
 import pytest
-
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.main import app
 from app.database import Base, get_db
+from app.main import app
 
-
-# Separate in-memory database for tests
 TEST_ENGINE = create_engine(
     "sqlite://",
     connect_args={"check_same_thread": False},
-    poolclass=StaticPool
+    poolclass=StaticPool,
 )
-
 TestingSessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=TEST_ENGINE
+    autocommit=False, autoflush=False, bind=TEST_ENGINE
 )
 
 
@@ -36,161 +31,222 @@ def override_get_db():
 def client():
     Base.metadata.create_all(bind=TEST_ENGINE)
     app.dependency_overrides[get_db] = override_get_db
-
     with TestClient(app) as test_client:
         yield test_client
-
     app.dependency_overrides.clear()
     Base.metadata.drop_all(bind=TEST_ENGINE)
 
 
 def setup_firm_and_client(client, firm_name="Test Firm"):
-    firm_response = client.post(
-        "/api/firms",
-        params={"name": firm_name}
-    )
-
-    firm_id = firm_response.json()["id"]
-
-    headers = {"X-Firm-ID": str(firm_id)}
-
-    client.post(
+    firm_response = client.post("/api/firms", params={"name": firm_name})
+    assert firm_response.status_code == 200
+    payload = firm_response.json()
+    headers = {"X-Firm-Key": payload["api_key"]}
+    client_response = client.post(
         "/api/clients",
         params={"client_ref": "CLIENT001"},
-        headers=headers
+        headers=headers,
     )
-
+    assert client_response.status_code == 200
     return headers
 
 
-def transaction_data(ref="TXN001", amount="1000.00"):
+def transaction_data(ref="TXN001", amount="1000.00", date="2026-11-20T10:00:00"):
     return {
         "client_ref": "CLIENT001",
         "transaction_ref": ref,
         "transaction_type": "deposit",
         "amount": amount,
         "currency": "INR",
-        "transaction_date": "2026-11-20T10:00:00"
+        "transaction_date": date,
     }
 
 
-def test_create_firm(client):
-    response = client.post(
-        "/api/firms",
-        params={"name": "Northbridge"}
+def create_transaction(client, headers, data=None):
+    return client.post(
+        "/api/transactions",
+        json=data or transaction_data(),
+        headers=headers,
     )
 
+
+def test_create_firm_returns_one_time_api_key(client):
+    response = client.post("/api/firms", params={"name": "Northbridge"})
     assert response.status_code == 200
     assert response.json()["name"] == "Northbridge"
+    assert len(response.json()["api_key"]) > 30
+
+
+def test_firm_api_key_is_required(client):
+    response = client.get("/api/transactions")
+    assert response.status_code == 422
+
+    response = client.get(
+        "/api/transactions", headers={"X-Firm-Key": "not-a-valid-key"}
+    )
+    assert response.status_code == 401
 
 
 def test_create_transaction(client):
     headers = setup_firm_and_client(client)
-
-    response = client.post(
-        "/api/transactions",
-        json=transaction_data(),
-        headers=headers
-    )
-
+    response = create_transaction(client, headers)
     assert response.status_code == 200
     assert response.json()["message"] == "Transaction created"
 
 
 def test_duplicate_transaction_rejected(client):
     headers = setup_firm_and_client(client)
-
-    client.post(
-        "/api/transactions",
-        json=transaction_data(),
-        headers=headers
-    )
-
-    response = client.post(
-        "/api/transactions",
-        json=transaction_data(),
-        headers=headers
-    )
-
-    assert response.status_code == 409
+    assert create_transaction(client, headers).status_code == 200
+    assert create_transaction(client, headers).status_code == 409
 
 
 def test_negative_amount_rejected(client):
     headers = setup_firm_and_client(client)
-
-    response = client.post(
-        "/api/transactions",
-        json=transaction_data(amount="-500"),
-        headers=headers
+    response = create_transaction(
+        client, headers, transaction_data(amount="-500")
     )
-
     assert response.status_code == 422
 
 
 def test_invalid_currency_rejected(client):
     headers = setup_firm_and_client(client)
-
     data = transaction_data()
     data["currency"] = "XYZ"
-
-    response = client.post(
-        "/api/transactions",
-        json=data,
-        headers=headers
-    )
-
+    response = create_transaction(client, headers, data)
     assert response.status_code == 422
 
 
 def test_tenant_isolation(client):
-    firm_a_headers = setup_firm_and_client(
-        client, "Firm A"
-    )
+    firm_a_headers = setup_firm_and_client(client, "Firm A")
+    assert create_transaction(client, firm_a_headers).status_code == 200
 
-    client.post(
-        "/api/transactions",
-        json=transaction_data(),
-        headers=firm_a_headers
-    )
-
-    firm_b_headers = setup_firm_and_client(
-        client, "Firm B"
-    )
-
-    response = client.get(
-        "/api/transactions",
-        headers=firm_b_headers
-    )
-
+    firm_b_headers = setup_firm_and_client(client, "Firm B")
+    response = client.get("/api/transactions", headers=firm_b_headers)
     assert response.status_code == 200
     assert response.json() == []
 
+    # Firm B cannot authenticate by guessing Firm A's numeric database ID.
+    wrong_headers = {"X-Firm-Key": "1"}
+    assert client.get("/api/transactions", headers=wrong_headers).status_code == 401
 
-def test_client_balance(client):
+
+def test_client_balance_uses_decimal_arithmetic(client):
     headers = setup_firm_and_client(client)
+    create_transaction(client, headers)
 
-    client.post(
-        "/api/transactions",
-        json=transaction_data(amount="1000"),
-        headers=headers
-    )
-
-    withdrawal = transaction_data(
-        ref="TXN002",
-        amount="200"
-    )
+    withdrawal = transaction_data(ref="TXN002", amount="200")
     withdrawal["transaction_type"] = "withdrawal"
+    assert create_transaction(client, headers, withdrawal).status_code == 200
 
-    client.post(
-        "/api/transactions",
-        json=withdrawal,
-        headers=headers
+    response = client.get(
+        "/api/clients/CLIENT001/balance", headers=headers
+    )
+    assert response.status_code == 200
+    assert Decimal(str(response.json()["balances"]["INR"])) == Decimal("800.00")
+
+
+def test_historical_balance_excludes_later_transactions(client):
+    headers = setup_firm_and_client(client)
+    create_transaction(
+        client, headers,
+        transaction_data(ref="TXN-OLD", amount="100", date="2026-10-01T10:00:00"),
+    )
+    create_transaction(
+        client, headers,
+        transaction_data(ref="TXN-NEW", amount="50", date="2026-11-10T10:00:00"),
     )
 
     response = client.get(
-        "/api/clients/CLIENT001/balance",
-        headers=headers
+        "/api/clients/CLIENT001/balance/history",
+        params={"as_of": "2026-10-31T23:59:59"},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert Decimal(str(response.json()["balances"]["INR"])) == Decimal("100.00")
+
+
+def test_bulk_import_allows_partial_success(client):
+    headers = setup_firm_and_client(client)
+    valid = transaction_data(ref="BULK-OK", amount="25")
+    invalid_client = transaction_data(ref="BULK-BAD", amount="30")
+    invalid_client["client_ref"] = "MISSING"
+
+    response = client.post(
+        "/api/transactions/bulk",
+        headers=headers,
+        json={"transactions": [valid, invalid_client]},
+    )
+    assert response.status_code == 200
+    assert response.json()["total"] == 2
+    assert response.json()["results"][0]["status"] == "success"
+    assert response.json()["results"][1]["status"] == "rejected"
+
+
+def test_reverse_transaction_preserves_original_and_restores_balance(client):
+    headers = setup_firm_and_client(client)
+    created = create_transaction(client, headers)
+    original_id = created.json()["transaction_id"]
+
+    reversal = client.post(
+        f"/api/transactions/{original_id}/reverse",
+        headers=headers,
+        json={"reversal_ref": "TXN-REVERSAL"},
+    )
+    assert reversal.status_code == 200
+
+    balance = client.get(
+        "/api/clients/CLIENT001/balance", headers=headers
+    )
+    assert Decimal(str(balance.json()["balances"]["INR"])) == Decimal("0.00")
+
+    transactions = client.get("/api/transactions", headers=headers).json()
+    assert len(transactions) == 2
+    assert transactions[0]["transaction_ref"] == "TXN001"
+    assert transactions[1]["reversal_of_id"] == original_id
+
+
+def test_duplicate_reversal_is_rejected(client):
+    headers = setup_firm_and_client(client)
+    original_id = create_transaction(client, headers).json()["transaction_id"]
+
+    first = client.post(
+        f"/api/transactions/{original_id}/reverse",
+        headers=headers,
+        json={"reversal_ref": "REV-1"},
+    )
+    second = client.post(
+        f"/api/transactions/{original_id}/reverse",
+        headers=headers,
+        json={"reversal_ref": "REV-2"},
+    )
+    assert first.status_code == 200
+    assert second.status_code == 409
+
+
+def test_audit_log_records_transaction_and_reversal(client):
+    headers = setup_firm_and_client(client)
+    original_id = create_transaction(client, headers).json()["transaction_id"]
+    client.post(
+        f"/api/transactions/{original_id}/reverse",
+        headers=headers,
+        json={"reversal_ref": "AUDIT-REV"},
     )
 
+    response = client.get("/api/audit-logs", headers=headers)
     assert response.status_code == 200
-    assert float(response.json()["balances"]["INR"]) == 800
+    actions = [entry["action"] for entry in response.json()]
+    assert actions == ["CREATED", "REVERSED"]
+
+
+def test_transfer_reversal_is_rejected_until_two_sided_transfer_exists(client):
+    headers = setup_firm_and_client(client)
+    transfer = transaction_data(ref="TRANSFER-1")
+    transfer["transaction_type"] = "transfer"
+    original_id = create_transaction(client, headers, transfer).json()["transaction_id"]
+
+    response = client.post(
+        f"/api/transactions/{original_id}/reverse",
+        headers=headers,
+        json={"reversal_ref": "TRANSFER-REV"},
+    )
+    assert response.status_code == 422
