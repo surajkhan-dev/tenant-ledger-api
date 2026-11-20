@@ -1,8 +1,10 @@
 - SQLite is used for local development and automated tests.
 - Money values use Decimal and SQLAlchemy Numeric(18, 2).
+- Firm API keys are randomly generated; only SHA-256 hashes are stored.
+- Send the one-time key as X-Firm-Key; never use a caller-supplied firm ID.
 - Transaction references are unique within each firm.
-- Bulk imports commit rows independently for partial success.
+- Bulk imports commit rows independently to allow partial success.
 - Reversals create compensating transactions; originals remain unchanged.
-- Audit events are written in the same transaction as ledger changes.
-- Tenant identity must be authenticated; a caller-supplied firm ID is not secure.
-- Production deployment needs migrations, PostgreSQL, and stronger auth controls.
+- Audit events are written in the same database transaction as ledger changes.
+- Transfer reversal is rejected because the model does not yet represent both accounts.
+- Production still needs database migrations, PostgreSQL deployment, key rotation, and stronger operational controls.
