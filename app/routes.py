@@ -282,7 +282,10 @@ def historical_balance(
 
     transactions = db.query(Transaction).filter(
         Transaction.firm_id == firm.id,
-        Transaction.client_ref == client_ref,
+        or_(
+            Transaction.client_ref == client_ref,
+            Transaction.counterparty_client_ref == client_ref,
+        ),
         Transaction.transaction_date <= as_of,
     ).all()
     return {
